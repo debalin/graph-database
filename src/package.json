@@ -7,7 +7,8 @@
   	"url" : "https://github.com/debalin/graph-database.git"
   },
   "dependencies": {
-    "neo4j-driver": "latest",
-    "neo4j": "latest"
+    "node-neo4j": "latest",
+    "sync": "latest",
+    "js-combinatorics": "latest"
   }
 }
