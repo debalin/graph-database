@@ -17,39 +17,75 @@ sync(function() {
     for (var egoCenter of egoCenters) {
         deleteEverything.sync(null);
         createEgoNetwork(egoCenter);
+        console.log("\nWriting proofs to " + egoCenter + ".proofs.");
+        makeProof1.sync(null, egoCenter);
+        console.log("Proofs written.");
         calculateMetrics(egoCenter);
+        break;
     }
 });
 
+//prove or disprove the hypotheses
+// Hypothesis 1 (czhao13) - People who have both same hometown and same university are more likely to have connection to each other.
+function makeProof1(egoCenter, callback) {
+    var query = "match (m), (n) where exists (m.`hometown;id`) and exists (n.`hometown;id`) and exists (m.`education;school;id`) and exists (n.`education;school;id`) and m.`hometown;id` = n.`hometown;id` and m.`education;school;id` = n.`education;school;id` return count(*)";
+    db.cypherQuery(query, function(err, result) {
+        fs.writeFileSync("../output/" + egoCenter + ".proofs", "Proof 1 (czhao13-01): \n");
+        if (err) throw err;
+        fs.appendFileSync("../output/" + egoCenter + ".proofs", "People having same hometown and same university: " + result.data + "\n");
+        var denom = result.data;
+        query = "match (m), (n) where exists (m.`hometown;id`) and exists (n.`hometown;id`) and exists (m.`education;school;id`) and exists (n.`education;school;id`) and m.`hometown;id` = n.`hometown;id` and m.`education;school;id` = n.`education;school;id` and (m)-[:FRIENDS]-(n) return count(*)";
+        db.cypherQuery(query, function(err, result) {
+            if (err) throw err;
+            fs.appendFileSync("../output/" + egoCenter + ".proofs", "People having same hometown and same university and who are connected: " + result.data + "\n");
+            var num = result.data;
+            var percentage = (num / denom) * 100;
+            fs.appendFileSync("../output/" + egoCenter + ".proofs", "Percentage of the latter: " + percentage + "\n");
+            if (percentage > 50)
+                fs.appendFileSync("../output/" + egoCenter + ".proofs", "Hypothesis 1 proved for this ego network." + "\n");
+            else
+                fs.appendFileSync("../output/" + egoCenter + ".proofs", "Hypothesis 1 disproved for this ego network." + "\n");
+            if (callback)
+                callback();
+        });
+    });
+}
+
 //calculate metrics
 function calculateMetrics(egoCenter) {
-    console.log("\nMetrics - ");
-    calculateNodeCount();
-    calculateEdgeCount();
-    calculateClusterCoefficient();
-    calculateBetweenness(egoCenter);
+    console.log("\nWriting metrics to " + egoCenter + ".metrics.");
+    fs.writeFileSync("../output/" + egoCenter + ".metrics", "Metrics: \n");
+    calculateNodeCount.sync(null, egoCenter);
+    calculateEdgeCount.sync(null, egoCenter);
+    calculateClusterCoefficient.sync(null, egoCenter);
+    calculateBetweenness.sync(null, egoCenter);
+    console.log("Metrics written.");
 }
 
 //calculate the numebr of nodes
-function calculateNodeCount() {
+function calculateNodeCount(egoCenter, callback) {
     var query = "start n=node(*) match (n) return count(n)";
     db.cypherQuery(query, function(err, result) {
         if (err) throw err;
-        console.log("Node count: " + result.data);
+        fs.appendFileSync("../output/" + egoCenter + ".metrics", "Node count: " + result.data + "\n");
+        if (callback)
+            callback();
     });
 }
 
 //calculate the number of edges 
-function calculateEdgeCount() {
+function calculateEdgeCount(egoCenter, callback) {
     var query = "match (n:FBUser)-[r:FRIENDS]->(m:FBUser) return count(r)";
     db.cypherQuery(query, function(err, result) {
         if (err) throw err;
-        console.log("Edge count: " + result.data);
+        fs.appendFileSync("../output/" + egoCenter + ".metrics", "Edge count: " + result.data + "\n");
+        if (callback)
+            callback();
     });
 }
 
 //calculate the cluster coefficients for all nodes
-function calculateClusterCoefficient() {
+function calculateClusterCoefficient(egoCenter, callback) {
     var query1 = "start a = node("
     var query2 = ") match (a)--(b) with a, b as neighbours match (a)--()-[r]-()--(a) where id(a) <> id(neighbours) and id(neighbours) <> 0 return count(distinct neighbours), count(distinct r), a.name";
     for (var friend in friends) {
@@ -60,21 +96,32 @@ function calculateClusterCoefficient() {
                 var n = eachResult[0];
                 var r = eachResult[1];
                 var name = eachResult[2];
-                // var denominator = factorial(n).value[0] / factorial(n - 2).value[0];
-                // var denominator = n * (Math.pow(2, (n - 1)) - 1);
                 var denominator = Combinatorics.C(n, 2);
-                console.log("Clustering coefficient for " + name + ": " + (r / denominator));
+                fs.appendFileSync("../output/" + egoCenter + ".metrics", "Clustering coefficient for " + name + ": " + (r / denominator) + "\n");
+                if (callback)
+                    callback();
             }
         });
     }
 }
 
 //calculate the betweenness centrality value for each node
-function calculateBetweenness(egoCenter) {
-    var query = "START n=node(*) WHERE EXISTS (n.name) and n.name <> " + egoCenter + " WITH collect(n.name) AS all_nodes START source=node(*), destination=node(*) MATCH p = allShortestPaths((source)-[r:FRIENDS*]-(destination)) WHERE source <> destination AND LENGTH(p)> 1 AND source.name <> " + egoCenter + " AND destination.name <>" + egoCenter + " WITH EXTRACT(n IN NODES(p) | n.name) AS nodes, all_nodes WITH COLLECT(nodes) AS paths, all_nodes RETURN reduce(res=[], x IN all_nodes | res + [x, length(filter(p IN paths where x IN tail(p) AND x <> last(p)))])";
+function calculateBetweenness(egoCenter, callback) {
+    var query = "start n=node(*) where exists (n.name) and n.name <> " + egoCenter + " with collect(n.name) as all_nodes start source=node(*), destination=node(*) match p = allShortestPaths((source)-[r:FRIENDS*]-(destination)) where source <> destination and length(p)> 1 and source.name <> " + egoCenter + " and destination.name <>" + egoCenter + " with extract(n IN NODES(p) | n.name) as nodes, all_nodes with collect(nodes) as paths, all_nodes return reduce(res=[], x in all_nodes | res + [x, length(filter(p in paths where x in tail(p) and x <> last(p)))])";
     db.cypherQuery(query, function(err, result) {
         if (err) throw err;
-        console.log("Centrality value for all nodes: " + result.data);
+        var count = 0;
+        for (var value of result.data[0]) {
+        	if (count % 2 == 0) {
+        		fs.appendFileSync("../output/" + egoCenter + ".metrics", "Centrality value for " + value + ": ");		
+        	}
+        	else {
+        		fs.appendFileSync("../output/" + egoCenter + ".metrics", value + "\n");			
+        	}
+        	count++;
+        }
+        if (callback)
+            callback();
     });
 }
 
@@ -152,7 +199,7 @@ function readNodeFeatures(presentFeatures) {
 
 //delete everything in the Neo4j database
 function deleteEverything(callback) {
-    db.cypherQuery("MATCH (n) DETACH DELETE (n)", function(err, results) {
+    db.cypherQuery("match (n) detach delete (n)", function(err, results) {
         if (err) throw err;
         console.log("\nDatabase deleted.");
         if (callback)
@@ -176,7 +223,7 @@ function createUser(userFeatures, egoCenter, callback) {
 
 //create relationships between nodes
 function createRelationship(nodeID1, nodeID2, nodeName1, nodeName2, callback) {
-    var query = "MATCH (n:FBUser {name: '" + nodeName1 + "'})-[r:FRIENDS]-(m:FBUser {name: '" + nodeName2 + "'}) RETURN SIGN(COUNT(r))";
+    var query = "match (n:FBUser {name: '" + nodeName1 + "'})-[r:FRIENDS]-(m:FBUser {name: '" + nodeName2 + "'}) return sign(count(r))";
     db.cypherQuery(query, function(err, result) {
         // console.log(nodeID1 + " " + nodeID2 + " " + result.data[0] + " " + nodeName1 + " " + nodeName2);
         if (result.data[0] == 0) {
@@ -217,7 +264,8 @@ function createFriendNodes(egoCenter) {
         createRelationship.sync(null, friends[pair[0]], friends[pair[1]], pair[0], pair[1]);
     }
     console.log(" - Relationships formed among nodes.");
-    // updateWithCircles(egoCenter);
+    updateWithCircles(egoCenter);
+    console.log("Ego network built in Neo4j for " + egoCenter + ".");
 }
 
 //update node features
