@@ -21,7 +21,6 @@ sync(function() {
         makeProof1.sync(null, egoCenter);
         console.log("Proofs written.");
         calculateMetrics(egoCenter);
-        break;
     }
 });
 
@@ -83,7 +82,7 @@ function calculateEdgeCount(egoCenter, callback) {
             callback();
     });
 }
-
+	
 //calculate the cluster coefficients for all nodes
 function calculateClusterCoefficient(egoCenter, callback) {
     var query1 = "start a = node("
